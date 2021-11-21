@@ -1,0 +1,10 @@
+.env
+.envrc
+.env
+vars.auto.tfvars
+dist/
+.terraform
+function.zip
+main
+docker-compose.yml
+terraform/
