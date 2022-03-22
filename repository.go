@@ -2,10 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/slack-go/slack/slackevents"
 )
 
 type Repository interface {
@@ -14,34 +13,37 @@ type Repository interface {
 }
 
 type RedisRepository struct {
-	client *redis.Client
+	rdb *redis.Client
 }
 
-func NewRedisRepository() (*RedisRepository, error) {
+func NewRedisRepository(addr string, password string, db int) (*RedisRepository, error) {
+
 	repo := &RedisRepository{}
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     "127.0.0.1:6379",
-		Password: "",
-		DB:       0,
+		Addr:     addr,
+		Password: password,
+		DB:       db,
 	})
 
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		return nil, err
 	}
-	repo.client = redisClient
+	repo.rdb = redisClient
 
 	return repo, nil
 }
 
-func (repo RedisRepository) Incr(key string) error {
-	return repo.client.Incr(context.Background(), key).Err()
+func (repo RedisRepository) Incr(ctx context.Context, key string) (int, error) {
+
+	pipe := repo.rdb.TxPipeline()
+	incr := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, time.Minute) // this will expire from redis 1 min after the last "increment"
+
+	_, err := pipe.Exec(ctx)
+	return int(incr.Val()), err
 }
 
 func (repo RedisRepository) Get(key string) (int, error) {
-	return repo.client.Get(context.Background(), key).Int()
-}
-
-func GenerateKey(event *slackevents.ReactionAddedEvent) string {
-	return fmt.Sprintf("%s_%s", event.Item.Channel, event.Item.Timestamp)
+	return repo.rdb.Get(context.Background(), key).Int()
 }

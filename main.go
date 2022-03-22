@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,7 +21,10 @@ var (
 	SLACK_SIGNING_SECRET string
 )
 
-var redisRepo *RedisRepository
+var (
+	redisRepo   *RedisRepository
+	slackSender SlackSender
+)
 
 func mustGetenv(variable string) string {
 	found := os.Getenv(variable)
@@ -39,8 +44,13 @@ func main() {
 	SLACK_TOKEN = mustGetenv("SLACK_TOKEN")
 	SLACK_SIGNING_SECRET = mustGetenv("SLACK_SIGNING_SECRET")
 
-	//client := slack.New(SLACK_TOKEN, slack.OptionDebug(false))
-	redisRepo, err = NewRedisRepository()
+	slackSender, err := NewSlackSender(SLACK_TOKEN)
+	if err != nil {
+		log.Fatalf("[ERROR] failed to create slack client: %s", err)
+	}
+
+	//TODO: get redis config from env
+	redisRepo, err = NewRedisRepository("localhost:6379", "", 0)
 	if err != nil {
 		log.Fatalf("[ERROR] failed to create redis client: %s", err)
 	}
@@ -110,22 +120,19 @@ func main() {
 
 			switch event := eventsAPIEvent.InnerEvent.Data.(type) {
 			case *slackevents.ReactionAddedEvent:
-				err := redisRepo.Incr(GenerateKey(event))
+
+				redisKey := fmt.Sprintf("%s_%s", event.Item.Channel, event.Item.Timestamp)
+
+				val, err := redisRepo.Incr(context.Background(), redisKey)
 				if err != nil {
 					log.Printf("[ERROR] failed to write to Redis: %s\n", err)
 				}
-
-				val, err := redisRepo.Get(GenerateKey(event))
-				if err != nil {
-					log.Printf("[ERROR] failed to read from redis: %s\n", err)
-				}
-
 				log.Printf("[INFO] %v\n", val)
-				// log.Println("[DEBUG] detected reaction, replying")
-				// _, _, err := client.PostMessage(event.Item.Channel, slack.MsgOptionTS(event.Item.Timestamp), slack.MsgOptionText("This is a reply", false))
-				// if err != nil {
-				// 	log.Println("[ERROR]", err)
-				// }
+
+				// if a message has had more than N reactions, send a notification
+				if val > 1 {
+					slackSender.SendMessage("C02NG8RM10R", "Some message is getting plenty of attention")
+				}
 
 			case *slackevents.ReactionRemovedEvent:
 				log.Println("[DEBUG]", event.Reaction)
