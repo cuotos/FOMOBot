@@ -19,10 +19,12 @@ var (
 	SLACK_SIGNING_SECRET string
 )
 
+var redisRepo *RedisRepository
+
 func mustGetenv(variable string) string {
 	found := os.Getenv(variable)
 	if found == "" {
-		log.Fatalf("Mising required env var %s", variable)
+		log.Fatalf("mising required env var %s", variable)
 	}
 	return found
 }
@@ -38,6 +40,10 @@ func main() {
 	SLACK_SIGNING_SECRET = mustGetenv("SLACK_SIGNING_SECRET")
 
 	//client := slack.New(SLACK_TOKEN, slack.OptionDebug(false))
+	redisRepo, err = NewRedisRepository()
+	if err != nil {
+		log.Fatalf("[ERROR] failed to create redis client: %s", err)
+	}
 
 	filter := &logutils.LevelFilter{
 		Levels:   []logutils.LogLevel{"DEBUG", "WARN", "ERROR"},
@@ -47,7 +53,11 @@ func main() {
 	log.SetOutput(filter)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	http.HandleFunc("/events-endpoint", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/healthz", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Write([]byte("ok"))
+	})
+
+	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -55,6 +65,8 @@ func main() {
 			log.Println("[ERROR]", err)
 			return
 		}
+
+		// fmt.Printf("[DEBUG] %s\n", body)
 
 		sv, err := slack.NewSecretsVerifier(r.Header, SLACK_SIGNING_SECRET)
 		if err != nil {
@@ -98,7 +110,17 @@ func main() {
 
 			switch event := eventsAPIEvent.InnerEvent.Data.(type) {
 			case *slackevents.ReactionAddedEvent:
-				log.Println("[INFO] detected reaction in public channel, make a note")
+				err := redisRepo.Incr(GenerateKey(event))
+				if err != nil {
+					log.Printf("[ERROR] failed to write to Redis: %s\n", err)
+				}
+
+				val, err := redisRepo.Get(GenerateKey(event))
+				if err != nil {
+					log.Printf("[ERROR] failed to read from redis: %s\n", err)
+				}
+
+				log.Printf("[INFO] %v\n", val)
 				// log.Println("[DEBUG] detected reaction, replying")
 				// _, _, err := client.PostMessage(event.Item.Channel, slack.MsgOptionTS(event.Item.Timestamp), slack.MsgOptionText("This is a reply", false))
 				// if err != nil {
@@ -114,5 +136,8 @@ func main() {
 	})
 
 	log.Println("[INFO] Server listening")
-	http.ListenAndServe(":3000", nil)
+
+	if err := http.ListenAndServe(":3000", nil); err != nil {
+		log.Fatal(err)
+	}
 }
