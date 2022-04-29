@@ -1,0 +1,54 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/user/1234",
+  "rawQueryString": "",
+  "cookies": [
+      "..."
+  ],
+  "headers": {
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "none",
+      "accept-language": "...",
+      "cookie": "...",
+      "x-forwarded-proto": "https",
+      "x-forwarded-port": "443",
+      "x-forwarded-for": "...",
+      "accept": "*/*",
+      "sec-ch-ua": "...",
+      "sec-ch-ua-mobile": "?0",
+      "x-amzn-trace-id": "Root=1-619169b2-3475a75b6f6418026f27322e",
+      "sec-ch-ua-platform": "\"macOS\"",
+      "host": "<url-id>.lambda-url.eu-south-1.amazonaws.com",
+      "content-type": "application/json",
+      "cache-control": "no-cache",
+      "accept-encoding": "gzip, deflate, br",
+      "sec-fetch-dest": "empty",
+      "user-agent": "..."
+  },
+  "queryStringParameters": null,
+  "requestContext": {
+      "accountId": "...",
+      "apiId": "...",
+      "authentication": null,
+      "authorizer": null,
+      "domainName": "url-id.lambda-url.eu-south-1.amazonaws.com",
+      "domainPrefix": "...",
+      "http": {
+          "method": "GET",
+          "path": "/user/1234",
+          "protocol": "HTTP/1.1",
+          "sourceIp": "...",
+          "userAgent": "..."
+      },
+      "requestId": "caa072ed-ad63-4ee9-8f8a-532eca0d95ee",
+      "routeKey": "$default",
+      "stage": "$default",
+      "time": "14/Nov/2021:19:55:30 +0000",
+      "timeEpoch": 1636919730206
+  },
+  "body": "ewogICJ0b2tlbiI6ImprVlRuYTB6elQ3U0R1d0xIUXlFSXNqeSIsCiAgInRlYW1faWQiOiJUMDFGN0tXMUtQQyIsCiAgImFwaV9hcHBfaWQiOiJBMDJOVEFNNzFLSiIsCiAgImV2ZW50Ijp7CiAgICAidHlwZSI6InJlYWN0aW9uX2FkZGVkIiwKICAgICJ1c2VyIjoiVTAxRjBUVDQ1UUUiLAogICAgInJlYWN0aW9uIjoid2hpdGVfY2hlY2tfbWFyayIsCiAgICAiaXRlbSI6ewogICAgICAidHlwZSI6Im1lc3NhZ2UiLAogICAgICAiY2hhbm5lbCI6IkMwMk5HOFJNMTBSIiwKICAgICAgInRzIjoiMTY0ODA0MjEyOC4wMjEzOTkiCiAgICB9LAogICAgIml0ZW1fdXNlciI6IlUwMUYwVFQ0NVFFIiwKICAgICJldmVudF90cyI6IjE2NTA2NDQwMjguMDAyOTAwIgogIH0sCiAgInR5cGUiOiJldmVudF9jYWxsYmFjayIsCiAgImV2ZW50X2lkIjoiRXYwM0NEQkhDMTYyIiwKICAiZXZlbnRfdGltZSI6MTY1MDY0NDAyOCwKICAiYXV0aG9yaXphdGlvbnMiOlsKICAgIHsKICAgICAgImVudGVycHJpc2VfaWQiOm51bGwsCiAgICAgICJ0ZWFtX2lkIjoiVDAxRjdLVzFLUEMiLAogICAgICAidXNlcl9pZCI6IlUwMk5UQU5RTjRRIiwKICAgICAgImlzX2JvdCI6dHJ1ZSwKICAgICAgImlzX2VudGVycHJpc2VfaW5zdGFsbCI6ZmFsc2UKICAgIH0KICBdLAogICJpc19leHRfc2hhcmVkX2NoYW5uZWwiOmZhbHNlLAogICJldmVudF9jb250ZXh0IjoiNC1leUpsZENJNkluSmxZV04wYVc5dVgyRmtaR1ZrSWl3aWRHbGtJam9pVkRBeFJqZExWekZMVUVNaUxDSmhhV1FpT2lKQk1ESk9WRUZOTnpGTFNpSXNJbU5wWkNJNklrTXdNazVIT0ZKTk1UQlNJbjAiCn0=",
+  "pathParameters": null,
+  "stageVariables": null,
+  "isBase64Encoded": true
+}
