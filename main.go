@@ -6,26 +6,88 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/slack-go/slack"
 )
 
 const (
-	lambdaMode = true
+	lambdaMode = false
+
+	defaultRedisDB   = 0
+	defaultRedisAddr = "localhost:3679"
 )
 
-func main() {
-	log.SetFlags(log.Lshortfile | log.LstdFlags)
+func mustGetEnvVarString(key string) string {
+	value, found := os.LookupEnv(key)
+	if !found {
+		log.Fatalf("required environment variable not found %s", key)
+	}
+	return value
+}
 
-	slackHandler := &RealSlackHandler{}
+func mustGetEnvVarInt(key string) int {
+	stringValue := mustGetEnvVarString(key)
+	i, err := strconv.Atoi(stringValue)
+	if err != nil {
+		log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+	}
+	return i
+}
+
+func getEnvVarIntWithDefault(key string, fallback int) int {
+	stringValue, found := os.LookupEnv(key)
+	if found {
+		i, err := strconv.Atoi(stringValue)
+		if err != nil {
+			log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+		}
+		return i
+	} else {
+		log.Printf("env var %s not set, using default %d", key, fallback)
+		return fallback
+	}
+}
+
+func getEnvVarStringWithDefault(key string, fallback string) string {
+	value, found := os.LookupEnv(key)
+	if found {
+		return value
+	} else {
+		log.Printf("env var %s not set, using default %s", key, fallback)
+		return fallback
+	}
+}
+
+func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile | log.LstdFlags)
+
+	notificationTimeoutThreshold := time.Duration(getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", 30)) * time.Second
+
+	repo, err := NewRedisRepository(mustGetEnvVarString("REDIS_ADDR"), mustGetEnvVarString("REDIS_PASSWORD"), getEnvVarIntWithDefault("REDIS_DB", 0), notificationTimeoutThreshold)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"))
+
+	slackHandler := NewRealSlackHandler(
+		repo,
+		slackClient,
+		mustGetEnvVarString("SLACK_NOTIFICATION_CHANNEL"),
+		getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", 5),
+	)
 
 	if lambdaMode {
 		lambda.Start(LambdaHandler(slackHandler))
 	} else {
 		mux := http.DefaultServeMux
 		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
-		panic(http.ListenAndServe(":8080", mux))
+		panic(http.ListenAndServe("127.0.0.1:8080", mux))
 	}
 }
 
@@ -49,6 +111,7 @@ func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaF
 
 		handlerResp, err := sh.HandleEvent(body)
 		if err != nil {
+			log.Println(err)
 			return resp, err
 		}
 

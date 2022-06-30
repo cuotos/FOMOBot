@@ -44,3 +44,15 @@ func TestCorrectlyDecodesBase64Requests(t *testing.T) {
 		assert.Equal(t, tc.Expected, actualResp.Body)
 	}
 }
+
+func TestBadBase64ReturnsAnError(t *testing.T) {
+	mockSlackHandler := MockSlackHandler{}
+	lambdaFunc := LambdaHandler(mockSlackHandler)
+	mockRequest := events.LambdaFunctionURLRequest{
+		Body:            "this_is_bad_base64",
+		IsBase64Encoded: true,
+	}
+	_, err := lambdaFunc(context.Background(), mockRequest)
+
+	assert.Error(t, err)
+}

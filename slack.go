@@ -12,6 +12,7 @@ import (
 
 type SlackClient interface {
 	SendMessage(string, ...slack.MsgOption) (string, string, string, error)
+	GetPermalink(*slack.PermalinkParameters) (string, error)
 }
 
 type SlackHandlerResponse struct {
@@ -44,7 +45,7 @@ func NewRealSlackHandler(repo Repository, slackClient SlackClient, notificationC
 func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, error) {
 	resp := SlackHandlerResponse{}
 
-	event, err := slackevents.ParseEvent(body, slackevents.OptionNoVerifyToken())
+	event, err := slackevents.ParseEvent(body, slackevents.OptionNoVerifyToken()) //TODO: verify
 	if err != nil {
 		resp.StatusCode = http.StatusInternalServerError
 		return resp, err
@@ -68,14 +69,27 @@ func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, erro
 		switch e := event.InnerEvent.Data.(type) {
 		case *slackevents.ReactionAddedEvent:
 			resp.StatusCode = http.StatusOK
-			val, err := sh.Repository.Incr(context.Background(), fmt.Sprintf("%s_%s", e.Item.Channel, e.Item.Timestamp))
+			val, err := sh.Repository.Incr(context.Background(), fmt.Sprintf("%s_%s_%s", event.TeamID, e.Item.Channel, e.Item.Timestamp))
 			if err != nil {
 				resp.StatusCode = http.StatusInternalServerError
 				return resp, err
 			}
 
 			if val == sh.ReactionThreshold {
-				sh.SendMessage(sh.NotificationChannel, "") // TODO: put together message
+				messageLink, err := sh.SlackClient.GetPermalink(&slack.PermalinkParameters{
+					Channel: e.Item.Channel,
+					Ts:      e.Item.Timestamp,
+				})
+				if err != nil {
+					return resp, fmt.Errorf("unable to get permalink for event: %w", err)
+				}
+
+				msgText := fmt.Sprintf("This message appears to be getting plenty of attention: %s", messageLink)
+
+				err = sh.SendMessage(sh.NotificationChannel, msgText) // TODO: put together message
+				if err != nil {
+					return resp, fmt.Errorf("failed to send message to slack: %w", err)
+				}
 			}
 		}
 	}
@@ -83,7 +97,7 @@ func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, erro
 	return resp, nil
 }
 
-func (sh *RealSlackHandler) SendMessage(channel string, _ string) error {
-	_, _, _, err := sh.SlackClient.SendMessage(channel)
+func (sh *RealSlackHandler) SendMessage(channel string, msg string) error {
+	_, _, _, err := sh.SlackClient.SendMessage(channel, slack.MsgOptionText(msg, false))
 	return err
 }
