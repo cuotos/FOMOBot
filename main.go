@@ -8,18 +8,21 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/hashicorp/logutils"
 	"github.com/slack-go/slack"
 )
 
 const (
-	lambdaMode = false
-
-	defaultRedisDB   = 0
-	defaultRedisAddr = "localhost:3679"
+	defaultListenAddr   = "127.0.0.1:8080"
+	defaultRedisDB      = 0
+	defaultRedisAddr    = "localhost:3679"
+	defaultTriggerCount = 5
+	defaultTimeout      = 30
 )
 
 func mustGetEnvVarString(key string) string {
@@ -64,30 +67,44 @@ func getEnvVarStringWithDefault(key string, fallback string) string {
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile | log.LstdFlags)
 
-	notificationTimeoutThreshold := time.Duration(getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", 30)) * time.Second
+	logLevel := getEnvVarStringWithDefault("LOG_LEVEL", "INFO")
+
+	filter := &logutils.LevelFilter{
+		Levels:   []logutils.LogLevel{"TRACE", "DEBUG", "WARN", "INFO", "ERROR"},
+		MinLevel: logutils.LogLevel(strings.ToUpper(logLevel)),
+		Writer:   os.Stderr,
+	}
+	log.SetOutput(filter)
+
+	log.Printf("[DEBUG] log level=%s", filter.MinLevel)
+
+	notificationTimeoutThreshold := time.Duration(getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", defaultTimeout)) * time.Second
 
 	repo, err := NewRedisRepository(mustGetEnvVarString("REDIS_ADDR"), mustGetEnvVarString("REDIS_PASSWORD"), getEnvVarIntWithDefault("REDIS_DB", 0), notificationTimeoutThreshold)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("[ERROR] %s", err)
 	}
 
-	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"))
+	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"), slack.OptionDebug(true))
 
 	slackHandler := NewRealSlackHandler(
 		repo,
 		slackClient,
 		mustGetEnvVarString("SLACK_NOTIFICATION_CHANNEL"),
-		getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", 5),
+		getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", defaultTriggerCount),
 	)
 
-	if lambdaMode {
+	log.Print("[DEBUG] checking if the env var LAMBDA_TASK_ROOT exists, if it does, we are in Lambda mode")
+	// AWS set the env var LAMBDA_TASK_ROOT, this can be used to test if we are running in AWS or on a server.
+	if os.Getenv("LAMBDA_TASK_ROOT") != "" {
+		log.Print("[DEBUG] we are running in Lambda mode")
 		lambda.Start(LambdaHandler(slackHandler))
 	} else {
+		log.Print("[DEBUG] we are running in server mode")
 		mux := http.DefaultServeMux
 		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
-		panic(http.ListenAndServe("127.0.0.1:8080", mux))
+		panic(http.ListenAndServe(defaultListenAddr, mux))
 	}
 }
 
@@ -111,7 +128,7 @@ func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaF
 
 		handlerResp, err := sh.HandleEvent(body)
 		if err != nil {
-			log.Println(err)
+			log.Printf("[ERROR] %s", err)
 			return resp, err
 		}
 
@@ -123,7 +140,7 @@ func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaF
 	}
 }
 
-// Enable running the service in standalone api mode
+// Enable running the service in standalone server mode
 func ServerHandlerFunc(sh SlackHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := ioutil.ReadAll(r.Body)
@@ -135,6 +152,7 @@ func ServerHandlerFunc(sh SlackHandler) http.HandlerFunc {
 
 		resp, err := sh.HandleEvent(body)
 		if err != nil {
+			log.Printf("[ERROR] failed to handle event: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			return

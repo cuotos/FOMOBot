@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/slack-go/slack"
@@ -43,6 +44,7 @@ func NewRealSlackHandler(repo Repository, slackClient SlackClient, notificationC
 }
 
 func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, error) {
+	log.Printf("[TRACE] handling event: %s", body)
 	resp := SlackHandlerResponse{}
 
 	event, err := slackevents.ParseEvent(body, slackevents.OptionNoVerifyToken()) //TODO: verify
@@ -76,6 +78,7 @@ func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, erro
 			}
 
 			if val == sh.ReactionThreshold {
+				log.Printf("[DEBUG] sending slack notification message to channel %s", sh.NotificationChannel)
 				messageLink, err := sh.SlackClient.GetPermalink(&slack.PermalinkParameters{
 					Channel: e.Item.Channel,
 					Ts:      e.Item.Timestamp,
@@ -83,6 +86,7 @@ func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, erro
 				if err != nil {
 					return resp, fmt.Errorf("unable to get permalink for event: %w", err)
 				}
+				log.Printf("[TRACE] sending slack notification message regarding message %s %s", e.Item.Channel, e.Item.Timestamp)
 
 				msgText := fmt.Sprintf("This message appears to be getting plenty of attention: %s", messageLink)
 

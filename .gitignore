@@ -4,3 +4,5 @@
 vars.auto.tfvars
 dist/
 .terraform
+function.zip
+main
