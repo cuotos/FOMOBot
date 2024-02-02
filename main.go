@@ -2,192 +2,163 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"encoding/base64"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/slack-go/slack"
-	"github.com/slack-go/slack/slackevents"
-
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/hashicorp/logutils"
-	"github.com/joho/godotenv"
+	"github.com/slack-go/slack"
 )
 
 const (
-	//notificationThresholdPeriod time.Duration = time.Hour
-	notificationThresholdPeriod time.Duration = time.Second * 30
-	notificationThresholdCount  int           = 2
+	defaultListenAddr   = "127.0.0.1:8080"
+	defaultRedisDB      = 0
+	defaultRedisAddr    = "localhost:3679"
+	defaultTriggerCount = 5
+	defaultTimeout      = 30
 )
 
-var (
-	SLACK_TOKEN                   string
-	SLACK_SIGNING_SECRET          string
-	SLACK_NOTIFICATION_CHANNEL_ID string
-	NOTIFICATION_THRESHOLD        int
-	VERIFICATION_TOKEN            string
-)
-
-var (
-	redisRepo   Repository
-	slackClient *slack.Client
-)
-
-func mustGetenv(variable string) string {
-	found := os.Getenv(variable)
-	if found == "" {
-		log.Fatalf("mising required env var %s", variable)
+func mustGetEnvVarString(key string) string {
+	value, found := os.LookupEnv(key)
+	if !found {
+		log.Fatalf("required environment variable not found %s", key)
 	}
-	return found
+	return value
+}
+
+func mustGetEnvVarInt(key string) int {
+	stringValue := mustGetEnvVarString(key)
+	i, err := strconv.Atoi(stringValue)
+	if err != nil {
+		log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+	}
+	return i
+}
+
+func getEnvVarIntWithDefault(key string, fallback int) int {
+	stringValue, found := os.LookupEnv(key)
+	if found {
+		i, err := strconv.Atoi(stringValue)
+		if err != nil {
+			log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+		}
+		return i
+	} else {
+		log.Printf("env var %s not set, using default %d", key, fallback)
+		return fallback
+	}
+}
+
+func getEnvVarStringWithDefault(key string, fallback string) string {
+	value, found := os.LookupEnv(key)
+	if found {
+		return value
+	} else {
+		log.Printf("env var %s not set, using default %s", key, fallback)
+		return fallback
+	}
 }
 
 func main() {
+
+	logLevel := getEnvVarStringWithDefault("LOG_LEVEL", "INFO")
+
 	filter := &logutils.LevelFilter{
-		Levels:   []logutils.LogLevel{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"},
-		MinLevel: logutils.LogLevel("DEBUG"),
+		Levels:   []logutils.LogLevel{"TRACE", "DEBUG", "WARN", "INFO", "ERROR"},
+		MinLevel: logutils.LogLevel(strings.ToUpper(logLevel)),
 		Writer:   os.Stderr,
 	}
 	log.SetOutput(filter)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if err := run(); err != nil {
-		log.Fatal("[FATAL] ", err)
+	log.Printf("[DEBUG] log level=%s", filter.MinLevel)
+
+	notificationTimeoutThreshold := time.Duration(getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", defaultTimeout)) * time.Second
+
+	repo, err := NewRedisRepository(mustGetEnvVarString("REDIS_ADDR"), mustGetEnvVarString("REDIS_PASSWORD"), getEnvVarIntWithDefault("REDIS_DB", 0), notificationTimeoutThreshold)
+	if err != nil {
+		log.Fatalf("[ERROR] %s", err)
+	}
+
+	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"), slack.OptionDebug(true))
+
+	slackHandler := NewRealSlackHandler(
+		repo,
+		slackClient,
+		mustGetEnvVarString("SLACK_NOTIFICATION_CHANNEL"),
+		getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", defaultTriggerCount),
+	)
+
+	log.Print("[DEBUG] checking if the env var LAMBDA_TASK_ROOT exists, if it does, we are in Lambda mode")
+	// AWS set the env var LAMBDA_TASK_ROOT, this can be used to test if we are running in AWS or on a server.
+	if os.Getenv("LAMBDA_TASK_ROOT") != "" {
+		log.Print("[DEBUG] we are running in Lambda mode")
+		lambda.Start(LambdaHandler(slackHandler))
+	} else {
+		log.Print("[DEBUG] we are running in server mode")
+		mux := http.DefaultServeMux
+		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
+		panic(http.ListenAndServe(defaultListenAddr, mux))
 	}
 }
 
-func run() error {
+// LambdaHandler returns a function that can be used to recieve lambda events
+func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
+	return func(ctx context.Context, req events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
+		resp := events.LambdaFunctionURLResponse{}
 
-	err := godotenv.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load .env file: %w\n", err)
+		var body []byte
+
+		if req.IsBase64Encoded {
+			var err error
+			body, err = base64.StdEncoding.DecodeString(req.Body)
+			if err != nil {
+				log.Println(err)
+				return resp, err
+			}
+		} else {
+			body = []byte(req.Body)
+		}
+
+		handlerResp, err := sh.HandleEvent(body)
+		if err != nil {
+			log.Printf("[ERROR] %s", err)
+			return resp, err
+		}
+
+		resp.Body = string(handlerResp.Body)
+		resp.StatusCode = handlerResp.StatusCode
+		resp.Headers = handlerResp.Headers
+
+		return resp, nil
 	}
+}
 
-	// TODO: replace with a proper env parsing framework like "github.com/kelseyhightower/envconfig"
-	SLACK_TOKEN = mustGetenv("SLACK_TOKEN")
-	SLACK_SIGNING_SECRET = mustGetenv("SLACK_SIGNING_SECRET")
-	SLACK_NOTIFICATION_CHANNEL_ID = mustGetenv("SLACK_NOTIFICATION_CHANNEL_ID")
-	VERIFICATION_TOKEN = mustGetenv("VERIFICATION_TOKEN")
-
-	thresholdString := mustGetenv("NOTIFICATION_THRESHOLD")
-	thresholdInt, err := strconv.Atoi(thresholdString)
-	NOTIFICATION_THRESHOLD = thresholdInt
-	if err != nil {
-		return fmt.Errorf("NOTIFICATION_THRESHOLD must be an integer. but got \"%s\"\n", thresholdString)
-	}
-
-	slackClient = slack.New(SLACK_TOKEN)
-	_, err = slackClient.AuthTest()
-	if err != nil {
-		return fmt.Errorf("failed to create slack client: %w", err)
-	}
-
-	//TODO: get redis config from env
-	redisRepo, err = NewRedisRepository("localhost:6379", "", 0, notificationThresholdPeriod)
-	if err != nil {
-		return fmt.Errorf("failed to create redis client: %w", err)
-	}
-
-	http.HandleFunc("/healthz", func(rw http.ResponseWriter, r *http.Request) {
-		rw.Write([]byte("ok"))
-	})
-
-	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-
+// Enable running the service in standalone server mode
+func ServerHandlerFunc(sh SlackHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			log.Println("[ERROR] ", err)
-			return
-		}
-
-		sv, err := slack.NewSecretsVerifier(r.Header, SLACK_SIGNING_SECRET)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			log.Println("[ERROR] ", err)
-			return
-		}
-
-		if _, err := sv.Write(body); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			log.Println("[ERROR] ", err)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
-		if err := sv.Ensure(); err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			log.Println("[ERROR] ", err)
-			return
-		}
-
-		// Token verifier compares the token supplied with the message with the one Slack give you in the UI off the app.
-		slackMessageVerifier := slackevents.TokenComparator{VerificationToken: VERIFICATION_TOKEN}
-		eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionVerifyToken(slackMessageVerifier))
+		resp, err := sh.HandleEvent(body)
 		if err != nil {
+			log.Printf("[ERROR] failed to handle event: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
-			log.Println("[ERROR] ", err)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
-		// Verification process carried out by Slack when you add destination to app webhook config.
-		if eventsAPIEvent.Type == slackevents.URLVerification {
-			var r *slackevents.ChallengeResponse
-			err := json.Unmarshal([]byte(body), &r)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				log.Println("[ERROR] ", err)
-				return
-			}
-			w.Header().Set("Content-Type", "text")
-			w.Write([]byte(r.Challenge))
-		}
-
-		if eventsAPIEvent.Type == slackevents.CallbackEvent {
-
-			switch event := eventsAPIEvent.InnerEvent.Data.(type) {
-			// TODO: dispatch handling a reaction even to a go routine in order to finish the web call quick.
-			// needs to be a single routine in order to serialize the Incr calls to redis. although, they are atomic.... :thinking:
-			case *slackevents.ReactionAddedEvent:
-
-				redisKey := fmt.Sprintf("%s_%s", event.Item.Channel, event.Item.Timestamp)
-
-				val, err := redisRepo.Incr(context.Background(), redisKey)
-				if err != nil {
-					log.Printf("[ERROR] failed to write to Redis: %s\n", err)
-				}
-
-				if val == thresholdInt {
-					messageLink, err := slackClient.GetPermalink(&slack.PermalinkParameters{
-						Channel: event.Item.Channel,
-						Ts:      event.Item.Timestamp,
-					})
-					if err != nil {
-						log.Printf("unable to get permalink for interesting message: %s\n", err)
-					}
-
-					slackMsgOpts := []slack.MsgOption{}
-					slackMsgOpts = append(slackMsgOpts, slack.MsgOptionText(fmt.Sprintf("This message is getting plenty of attention: %s", messageLink), false))
-
-					_, _, _, err = slackClient.SendMessage(SLACK_NOTIFICATION_CHANNEL_ID, slackMsgOpts...)
-					if err != nil {
-						log.Printf("[ERROR] %s", err)
-					}
-				}
-
-			case *slackevents.ReactionRemovedEvent:
-				log.Println("[DEBUG] reaction removed: ", event.Reaction)
-			default:
-				log.Printf("[DEBUG] unknown event %T", event)
-			}
-		}
-
-		return
-	})
-
-	log.Println("[INFO] Server listening")
-
-	return http.ListenAndServe(":3000", nil)
+		w.WriteHeader(resp.StatusCode)
+		w.Write(resp.Body)
+	}
 }
