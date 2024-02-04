@@ -28,7 +28,7 @@ const (
 func mustGetEnvVarString(key string) string {
 	value, found := os.LookupEnv(key)
 	if !found {
-		log.Fatalf("required environment variable not found %s", key)
+		log.Fatalf("[ERROR] required environment variable not found %s", key)
 	}
 	return value
 }
@@ -37,7 +37,7 @@ func mustGetEnvVarInt(key string) int {
 	stringValue := mustGetEnvVarString(key)
 	i, err := strconv.Atoi(stringValue)
 	if err != nil {
-		log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+		log.Fatalf("[ERROR] unable to parse env var %s, expected int but got %s", key, stringValue)
 	}
 	return i
 }
@@ -47,11 +47,11 @@ func getEnvVarIntWithDefault(key string, fallback int) int {
 	if found {
 		i, err := strconv.Atoi(stringValue)
 		if err != nil {
-			log.Fatalf("unable to parse env var %s, expected int but got %s", key, stringValue)
+			log.Fatalf("[ERROR] unable to parse env var %s, expected int but got %s", key, stringValue)
 		}
 		return i
 	} else {
-		log.Printf("env var %s not set, using default %d", key, fallback)
+		log.Printf("[DEBUG] var %s not set, using default %d", key, fallback)
 		return fallback
 	}
 }
@@ -61,7 +61,7 @@ func getEnvVarStringWithDefault(key string, fallback string) string {
 	if found {
 		return value
 	} else {
-		log.Printf("env var %s not set, using default %s", key, fallback)
+		log.Printf("[DEBUG] env var %s not set, using default %s", key, fallback)
 		return fallback
 	}
 }
@@ -86,7 +86,7 @@ func main() {
 		log.Fatalf("[ERROR] %s", err)
 	}
 
-	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"), slack.OptionDebug(true))
+	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"))
 
 	slackHandler := NewRealSlackHandler(
 		repo,

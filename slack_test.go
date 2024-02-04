@@ -47,12 +47,12 @@ func TestReactionAddedEventCallsTheRepoIncr(t *testing.T) {
 	assert.Equal(t, http.StatusOK, actualResponse.StatusCode)
 	require.False(t, msc.messageSent)
 
-	actualResponse, err = handler.HandleEvent([]byte(mockReactionAddedEventJSON))
+	actualResponse, _ = handler.HandleEvent([]byte(mockReactionAddedEventJSON))
 
 	actualResponse, err = handler.HandleEvent([]byte(mockReactionAddedEventJSON))
 	require.NoError(t, err)
 	require.True(t, msc.messageSent)
-	assert.Equal(t, "C02NG8RM10R_1648042128.021399", actualKey)
+	assert.Equal(t, "T01F7KW1KPC_C02NG8RM10R_1648042128.021399", actualKey)
 	assert.Equal(t, "testNotificationChannelID", msc.channelCalled)
 }
 

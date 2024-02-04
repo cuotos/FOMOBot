@@ -58,22 +58,27 @@ resource aws_iam_role fomobot {
 resource aws_lambda_function fomobot {
   function_name = "fomobot"
   role = aws_iam_role.fomobot.arn
-  handler = "main"
-  filename = "../dist/fn.zip"
-  source_code_hash = filebase64sha256("../dist/fn.zip")
-  runtime = "go1.x"
+   package_type = "Image"
+  image_uri = "645306122402.dkr.ecr.eu-west-1.amazonaws.com/fomobot:latest"
 
   environment {
     variables = {
       FOMO_NOTIFICATION_COUNT_TIMEOUT = 60
       FOMO_NOTIFICATION_COUNT_TRIGGER = 2
-      REDIS_ADDR = "redis-15546.c59.eu-west-1-2.ec2.cloud.redislabs.com:15546"
-      REDIS_DB = 0
+      REDIS_ADDR = "redis-17722.c78.eu-west-1-2.ec2.cloud.redislabs.com:17722"
       REDIS_PASSWORD = var.redis_password
-      SLACK_NOTIFICATION_CHANNEL = "dp-test"
+      SLACK_NOTIFICATION_CHANNEL = "fomo-bot"
       SLACK_TOKEN = var.slack_token
     }
   }
+}
+
+resource aws_lambda_permission  public_access {
+  statement_id = "FunctionURLAllowPublicAccess"
+  action = "lambda:InvokeFunctionUrl"
+  function_name = aws_lambda_function.fomobot.function_name
+  principal = "*"
+  function_url_auth_type = "NONE"
 }
 
 resource aws_lambda_function_url fomobot {
@@ -84,4 +89,8 @@ resource aws_lambda_function_url fomobot {
 resource aws_cloudwatch_log_group fomobot {
   name = "/aws/lambda/fomobot"
   retention_in_days = 7
+}
+
+resource aws_ecr_repository ecr {
+  name = "fomobot"
 }
