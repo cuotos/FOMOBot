@@ -104,6 +104,7 @@ func main() {
 		log.Print("[DEBUG] we are running in server mode")
 		mux := http.DefaultServeMux
 		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
+		mux.HandleFunc("/healthz", HealthCheckHandler(repo))
 
 		listenAdd := getEnvVarStringWithDefault("LISTEN", defaultListenAddr)
 		log.Printf("[INFO] server running on %s", listenAdd)

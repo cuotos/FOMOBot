@@ -10,8 +10,7 @@ import (
 // TODO we are not actually using this interface anywhere!
 type Repository interface {
 	Incr(context.Context, string) (int, error)
-	Get(context.Context, string) (int, error)
-	Set(context.Context, string, interface{}, time.Duration) error
+	Healthy(context.Context) error
 }
 
 type RedisRepository struct {
@@ -56,10 +55,8 @@ func (repo *RedisRepository) Incr(ctx context.Context, key string) (int, error) 
 	return int(incr.Val()), err
 }
 
-func (repo *RedisRepository) Get(ctx context.Context, key string) (int, error) {
-	return repo.rdb.Get(context.Background(), key).Int()
-}
+func (repo *RedisRepository) Healthy(ctx context.Context) error {
+	err := repo.rdb.Ping(context.Background()).Err()
+	return err
 
-func (repo *RedisRepository) Set(ctx context.Context, key string, value interface{}, exp time.Duration) error {
-	return repo.rdb.Set(ctx, key, value, exp).Err()
 }
