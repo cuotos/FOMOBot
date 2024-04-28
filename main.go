@@ -15,60 +15,20 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/hashicorp/logutils"
 	"github.com/slack-go/slack"
+
+	"github.com/cuotos/fomobot/database"
+	"github.com/cuotos/fomobot/handler"
 )
 
 const (
-	defaultListenAddr   = "localhost:8080"
-	defaultRedisDB      = 0
-	defaultRedisAddr    = "localhost:3679"
-	defaultTriggerCount = 5
-	defaultTimeout      = 30
+	defaultListenAddr   = "0.0.0.0:8080"
+	defaultTriggerCount = 5  // number of reactions
+	defaultTimeout      = 30 // in this many seconds
 )
-
-func mustGetEnvVarString(key string) string {
-	value, found := os.LookupEnv(key)
-	if !found {
-		log.Fatalf("[ERROR] required environment variable not found %s", key)
-	}
-	return value
-}
-
-func mustGetEnvVarInt(key string) int {
-	stringValue := mustGetEnvVarString(key)
-	i, err := strconv.Atoi(stringValue)
-	if err != nil {
-		log.Fatalf("[ERROR] unable to parse env var %s, expected int but got %s", key, stringValue)
-	}
-	return i
-}
-
-func getEnvVarIntWithDefault(key string, fallback int) int {
-	stringValue, found := os.LookupEnv(key)
-	if found {
-		i, err := strconv.Atoi(stringValue)
-		if err != nil {
-			log.Fatalf("[ERROR] unable to parse env var %s, expected int but got %s", key, stringValue)
-		}
-		return i
-	} else {
-		log.Printf("[DEBUG] var %s not set, using default %d", key, fallback)
-		return fallback
-	}
-}
-
-func getEnvVarStringWithDefault(key string, fallback string) string {
-	value, found := os.LookupEnv(key)
-	if found {
-		return value
-	} else {
-		log.Printf("[DEBUG] env var %s not set, using default %s", key, fallback)
-		return fallback
-	}
-}
 
 func main() {
 
-	logLevel := getEnvVarStringWithDefault("LOG_LEVEL", "INFO")
+	logLevel := getenvStrWithDefault("LOG_LEVEL", "INFO")
 
 	filter := &logutils.LevelFilter{
 		Levels:   []logutils.LogLevel{"TRACE", "DEBUG", "WARN", "INFO", "ERROR"},
@@ -79,41 +39,45 @@ func main() {
 
 	log.Printf("[DEBUG] log level=%s", filter.MinLevel)
 
-	notificationTimeoutThreshold := time.Duration(getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", defaultTimeout)) * time.Second
+	notificationTimeoutThreshold := time.Duration(getenvIntWithDefault("FOMO_NOTIFICATION_COUNT_TIMEOUT", defaultTimeout)) * time.Second
 
-	repo, err := NewRedisRepository(mustGetEnvVarString("REDIS_ADDR"), getEnvVarStringWithDefault("REDIS_PASSWORD", ""), getEnvVarIntWithDefault("REDIS_DB", 0), notificationTimeoutThreshold)
+	db, err := database.NewRedisDatabase(mustGetenvStr("REDIS_ADDR"), getenvStrWithDefault("REDIS_PASSWORD", ""), getenvIntWithDefault("REDIS_DB", 0), notificationTimeoutThreshold)
 	if err != nil {
 		log.Fatalf("[ERROR] %s", err)
 	}
 
-	slackClient := slack.New(mustGetEnvVarString("SLACK_TOKEN"))
+	slackClient := slack.New(mustGetenvStr("SLACK_TOKEN"))
 
-	slackHandler := NewRealSlackHandler(
-		repo,
+	slackHandler := handler.NewRealSlackHandler(
+		db,
 		slackClient,
-		mustGetEnvVarString("SLACK_NOTIFICATION_CHANNEL"),
-		getEnvVarIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", defaultTriggerCount),
+		mustGetenvStr("SLACK_NOTIFICATION_CHANNEL"),
+		getenvIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", defaultTriggerCount),
 	)
 
 	log.Print("[DEBUG] checking if the env var AWS_LAMBDA_RUNTIME_API exists, if it does, we are in Lambda mode")
+
 	// AWS set the env var AWS_LAMBDA_RUNTIME_API, this can be used to test if we are running in AWS or on a server.
-	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
-		log.Print("[DEBUG] we are running in Lambda mode")
+	if weRunningInALambda() {
+
+		log.Print("[DEBUG] running in Lambda mode")
 		lambda.Start(LambdaHandler(slackHandler))
+
 	} else {
-		log.Print("[DEBUG] we are running in server mode")
+
+		log.Print("[DEBUG] running in server mode")
 		mux := http.DefaultServeMux
 		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
-		mux.HandleFunc("/healthz", HealthCheckHandler(repo))
+		mux.HandleFunc("/healthz", HealthCheckHandler())
 
-		listenAdd := getEnvVarStringWithDefault("LISTEN", defaultListenAddr)
+		listenAdd := getenvStrWithDefault("LISTEN", defaultListenAddr)
 		log.Printf("[INFO] server running on %s", listenAdd)
 		panic(http.ListenAndServe(listenAdd, mux))
 	}
 }
 
 // LambdaHandler returns a function that can be used to recieve lambda events
-func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
+func LambdaHandler(sh handler.SlackHandler) func(ctx context.Context, req events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
 	return func(ctx context.Context, req events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
 		resp := events.LambdaFunctionURLResponse{}
 
@@ -145,7 +109,7 @@ func LambdaHandler(sh SlackHandler) func(ctx context.Context, req events.LambdaF
 }
 
 // Enable running the service in standalone server mode
-func ServerHandlerFunc(sh SlackHandler) http.HandlerFunc {
+func ServerHandlerFunc(sh handler.SlackHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -164,4 +128,40 @@ func ServerHandlerFunc(sh SlackHandler) http.HandlerFunc {
 		w.WriteHeader(resp.StatusCode)
 		w.Write(resp.Body)
 	}
+}
+
+func mustGetenvStr(key string) string {
+	value, found := os.LookupEnv(key)
+	if !found {
+		log.Fatalf("[ERROR] required environment variable not found %s", key)
+	}
+	return value
+}
+
+func getenvIntWithDefault(key string, fallback int) int {
+	if stringValue := os.Getenv(key); stringValue != "" {
+		i, err := strconv.Atoi(stringValue)
+		if err != nil {
+			log.Fatalf("[ERROR] unable to parse env var %s, expected int but got %s", key, stringValue)
+		}
+		return i
+	}
+
+	log.Printf("[DEBUG] var %s not set, using default %d", key, fallback)
+	return fallback
+
+}
+
+func getenvStrWithDefault(key string, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+
+	log.Printf("[DEBUG] env var %s not set, using default %s", key, fallback)
+	return fallback
+
+}
+
+func weRunningInALambda() bool {
+	return os.Getenv("AWS_LAMBDA_RUNTIME_API") != ""
 }

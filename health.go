@@ -6,7 +6,7 @@ import (
 	"github.com/alexliesenfeld/health"
 )
 
-func HealthCheckHandler(repo Repository) http.HandlerFunc {
+func HealthCheckHandler() http.HandlerFunc {
 	checker := health.NewChecker()
 	return health.NewHandler(checker)
 }

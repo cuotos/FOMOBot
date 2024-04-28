@@ -1,9 +1,11 @@
-package main
+package handler
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
+	"github.com/cuotos/fomobot/database"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,10 +28,10 @@ func TestURLVerificationRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, actualResponse.StatusCode)
 }
 
-func TestReactionAddedEventCallsTheRepoIncr(t *testing.T) {
+func TestReactionAddedEventCallsTheDBIncr(t *testing.T) {
 	var actualKey string
 	calledCount := 0
-	mr := NewMockRepo(
+	mr := NewMockDB(
 		// incrFunc
 		func(key string) (int, error) {
 			actualKey = key
@@ -59,7 +61,7 @@ func TestReactionAddedEventCallsTheRepoIncr(t *testing.T) {
 func TestSendsMessageToSlackWhenCorrectNumberOfReactionsOccured(t *testing.T) {
 	msc := &MockSlackClient{}
 	calledCount := 0
-	mr := NewMockRepo(
+	mr := NewMockDB(
 		func(s string) (int, error) {
 			calledCount++
 			return calledCount, nil
@@ -80,17 +82,6 @@ func TestSendsMessageToSlackWhenCorrectNumberOfReactionsOccured(t *testing.T) {
 	handler.HandleEvent([]byte(mockReactionAddedEventJSON))
 	assert.False(t, msc.messageSent)
 	msc.messageSent = false
-}
-
-type MockSlackHandler struct{}
-
-func (msh MockSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, error) {
-	// just echo back the body that was passed in to check if it was decoded from base64 before calling Handle
-	return SlackHandlerResponse{Body: body}, nil
-}
-
-func (msh MockSlackHandler) SendMessage(_, _ string) error {
-	return nil
 }
 
 type MockSlackClient struct {
@@ -143,3 +134,21 @@ var mockReactionAddedEventJSON = `
   "event_context":"4-eyJldCI6InJlYWN0aW9uX2FkZGVkIiwidGlkXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXDJOVEFNNzFLSiIsImNpZCI6IkMwMk5HOFJNMTBSIn0"
 }
 `
+
+func NewMockDB(fn func(string) (int, error)) database.Database {
+	return &MockDB{
+		incrFunc: fn,
+	}
+}
+
+type MockDB struct {
+	incrFunc func(string) (int, error)
+}
+
+func (mr MockDB) Incr(_ context.Context, key string) (int, error) {
+	return mr.incrFunc(key)
+}
+
+func (mr MockDB) Healthy(_ context.Context) error {
+	return nil
+}

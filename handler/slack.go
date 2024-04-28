@@ -1,4 +1,4 @@
-package main
+package handler
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/cuotos/fomobot/database"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
@@ -31,15 +32,15 @@ type SlackHandler interface {
 type RealSlackHandler struct {
 	NotificationChannel string
 	ReactionThreshold   int
-	Repository          Repository
+	Database            database.Database
 	SlackClient         SlackClient
 }
 
-func NewRealSlackHandler(repo Repository, slackClient SlackClient, notificationChannel string, reacitonThreshold int) SlackHandler {
+func NewRealSlackHandler(db database.Database, slackClient SlackClient, notificationChannel string, reacitonThreshold int) SlackHandler {
 	return &RealSlackHandler{
 		NotificationChannel: notificationChannel,
 		ReactionThreshold:   reacitonThreshold,
-		Repository:          repo,
+		Database:            db,
 		SlackClient:         slackClient,
 	}
 }
@@ -84,7 +85,7 @@ func (sh *RealSlackHandler) HandleEvent(body []byte) (SlackHandlerResponse, erro
 		switch e := event.InnerEvent.Data.(type) {
 		case *slackevents.ReactionAddedEvent:
 			resp.StatusCode = http.StatusOK
-			val, err := sh.Repository.Incr(context.Background(), fmt.Sprintf("%s_%s_%s", event.TeamID, e.Item.Channel, e.Item.Timestamp))
+			val, err := sh.Database.Incr(context.Background(), fmt.Sprintf("%s_%s_%s", event.TeamID, e.Item.Channel, e.Item.Timestamp))
 			if err != nil {
 				resp.StatusCode = http.StatusInternalServerError
 				return resp, err

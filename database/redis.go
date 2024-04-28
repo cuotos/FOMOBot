@@ -1,4 +1,4 @@
-package main
+package database
 
 import (
 	"context"
@@ -7,26 +7,20 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-// TODO we are not actually using this interface anywhere!
-type Repository interface {
-	Incr(context.Context, string) (int, error)
-	Healthy(context.Context) error
-}
-
-type RedisRepository struct {
+type RedisDatabase struct {
 	rdb                         *redis.Client
 	notificationThresholdPeriod time.Duration
 }
 
-func NewRedisRepository(addr string, password string, db int, notificationThreshold time.Duration) (Repository, error) {
+func NewRedisDatabase(addr string, password string, dbID int, notificationThreshold time.Duration) (Database, error) {
 
-	repo := &RedisRepository{
+	db := &RedisDatabase{
 		notificationThresholdPeriod: notificationThreshold,
 	}
 
 	redisOptions := &redis.Options{
 		Addr: addr,
-		DB:   db,
+		DB:   dbID,
 	}
 
 	if password != "" {
@@ -38,25 +32,25 @@ func NewRedisRepository(addr string, password string, db int, notificationThresh
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		return nil, err
 	}
-	repo.rdb = redisClient
+	db.rdb = redisClient
 
-	return repo, nil
+	return db, nil
 }
 
-func (repo *RedisRepository) Incr(ctx context.Context, key string) (int, error) {
+func (db *RedisDatabase) Incr(ctx context.Context, key string) (int, error) {
 
-	pipe := repo.rdb.TxPipeline()
+	pipe := db.rdb.TxPipeline()
 	incr := pipe.Incr(ctx, key)
 	// This is will set TTL back to threshold on every reaction, its only wanted on the first one...
 	// or is this ok?? "the counter is reset on every call... if there are none for <timeout> seconds, the redis item disapears..."
-	pipe.Expire(ctx, key, repo.notificationThresholdPeriod)
+	pipe.Expire(ctx, key, db.notificationThresholdPeriod)
 
 	_, err := pipe.Exec(ctx)
 	return int(incr.Val()), err
 }
 
-func (repo *RedisRepository) Healthy(ctx context.Context) error {
-	err := repo.rdb.Ping(context.Background()).Err()
+func (db *RedisDatabase) Healthy(ctx context.Context) error {
+	err := db.rdb.Ping(context.Background()).Err()
 	return err
 
 }

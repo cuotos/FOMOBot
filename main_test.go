@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/cuotos/fomobot/handler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,15 @@ func TestBadBase64ReturnsAnError(t *testing.T) {
 	_, err := lambdaFunc(context.Background(), mockRequest)
 
 	assert.Error(t, err)
+}
+
+type MockSlackHandler struct{}
+
+func (msh MockSlackHandler) HandleEvent(body []byte) (handler.SlackHandlerResponse, error) {
+	// just echo back the body that was passed in to check if it was decoded from base64 before calling Handle
+	return handler.SlackHandlerResponse{Body: body}, nil
+}
+
+func (msh MockSlackHandler) SendMessage(_, _ string) error {
+	return nil
 }
