@@ -101,6 +101,10 @@ func (msc *MockSlackClient) GetPermalink(_ *slack.PermalinkParameters) (string, 
 	return "", nil
 }
 
+func (msc *MockSlackClient) LeaveConversation(_ string) (bool, error) {
+	return false, nil
+}
+
 var mockReactionAddedEventJSON = `
 {
   "token":"jkVTna0zzT7SDuwLHQyEIsjy",

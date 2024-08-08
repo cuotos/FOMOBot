@@ -13,7 +13,12 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
+type SlackChannelLeaver interface {
+	LeaveConversation(string) (bool, error)
+}
+
 type SlackClient interface {
+	SlackChannelLeaver
 	SendMessage(string, ...slack.MsgOption) (string, string, string, error)
 	GetPermalink(*slack.PermalinkParameters) (string, error)
 }

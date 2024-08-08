@@ -69,6 +69,7 @@ func main() {
 		mux := http.DefaultServeMux
 		mux.HandleFunc("/", ServerHandlerFunc(slackHandler))
 		mux.HandleFunc("/healthz", HealthCheckHandler())
+		mux.HandleFunc("/leave", LeaveChannelHandler(slackClient))
 
 		listenAdd := getenvStrWithDefault("LISTEN", defaultListenAddr)
 		log.Printf("[INFO] server running on %s", listenAdd)
