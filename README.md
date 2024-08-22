@@ -28,3 +28,7 @@ This app is written to run as a Lambda function or as a long running service
 
 - deploy
 `GOOS=linux go build -o main && zip function.zip main &&  av exec personal -- aws lambda  update-function-code --function-name fomobot --zip-file fileb://function.zip`
+
+## leave a channel
+you can request fomobot to remove iteself from a channel
+`curl -H Authentication: <same as AUTH_TOKEN env var" https://<fomobot>/leave?channel=<channelId>`

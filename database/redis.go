@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -27,11 +29,38 @@ func NewRedisDatabase(addr string, password string, dbID int, notificationThresh
 		redisOptions.Password = password
 	}
 
-	redisClient := redis.NewClient(redisOptions)
+	connectionEstablished := false
 
-	if err := redisClient.Ping(context.Background()).Err(); err != nil {
-		return nil, err
+	redisOptions.OnConnect = func(ctx context.Context, cn *redis.Conn) error {
+		log.Print("[INFO] redis connection established")
+		connectionEstablished = true
+		return nil
 	}
+
+	var redisClient *redis.Client
+	redisMaxConnctionAttempts := 10
+
+	redisConnectAttempt := 0
+	for {
+		redisConnectAttempt++
+		if redisConnectAttempt >= redisMaxConnctionAttempts {
+			return nil, fmt.Errorf("[ERROR] failed to connect to redis after %d attempts", redisMaxConnctionAttempts)
+		}
+
+		// establishing a connection triggers the OnConnect callback which sets the "connectionEstablished" var to true
+		redisClient = redis.NewClient(redisOptions)
+		redisClient.Ping(context.Background()).Err()
+
+		if connectionEstablished {
+			break
+		}
+
+		log.Print("[TRACE] redis connection not established, trying again...")
+		log.Print("[WARN] failed to connect to redis, will try again in 2 seconds")
+		time.Sleep(time.Second * 2)
+
+	}
+
 	db.rdb = redisClient
 
 	return db, nil

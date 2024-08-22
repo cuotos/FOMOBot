@@ -55,7 +55,7 @@ func main() {
 		getenvIntWithDefault("FOMO_NOTIFICATION_COUNT_TRIGGER", defaultTriggerCount),
 	)
 
-	log.Print("[DEBUG] checking if the env var AWS_LAMBDA_RUNTIME_API exists, if it does, we are in Lambda mode")
+	log.Print("[DEBUG] checking if the env var AWS_LAMBDA_RUNTIME_API exists, if it does, we are in Lambda mode, if not we are in server mode")
 
 	// AWS set the env var AWS_LAMBDA_RUNTIME_API, this can be used to test if we are running in AWS or on a server.
 	if weRunningInALambda() {
